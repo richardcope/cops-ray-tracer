@@ -13,6 +13,7 @@
 
 #bind parm num_spheres int val=200
 #bind parm spacing float val=1
+#bind parm jitter float val=0.75
 
 #import "random.h"
 
@@ -283,9 +284,8 @@ float3 sphere_albedo;
     for( int i = 5; i < @num_spheres; i++){
         float x_pos = (mod(i, rows)*@spacing) - (@spacing*rows)/2;
         float y_pos = ((i/rows)*@spacing) - (@spacing*rows)/2;
-        
-        x_pos = x_pos + (float)(VEXrandom_1_1(i+949))*@spacing - (@spacing/2);
-        y_pos = y_pos + (float)(VEXrandom_1_1(i+1195))*@spacing - (@spacing/2);
+        x_pos = x_pos + ((float)(VEXrandom_1_1(i+949))*@spacing - (@spacing/2))*@jitter;
+        y_pos = y_pos + ((float)(VEXrandom_1_1(i+1195))*@spacing - (@spacing/2))*@jitter;
         
         if( length((float3){x_pos, 0.2f, y_pos}-(float3){0, 0.2, 0}) > 1.2f
             && length((float3){x_pos, 0.2f, y_pos}-(float3){-4, 0.2, 0}) > 1.2f

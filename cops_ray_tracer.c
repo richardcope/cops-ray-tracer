@@ -11,40 +11,16 @@
 #bind parm samples float val=16
 #bind parm max_bounces int val=6
 
+#bind parm num_spheres int val=200
+#bind parm spacing float val=1
+
+#import "random.h"
+
 const float PI = 3.14159265;
-
-const int num_spheres = 350;
-
-// defining our own fract functions
-float fract1( float x){
-    return x - floor(x);
-}
-float2 fract2( float2 x){
-    return x - (float2)( floor(x.x), floor(x.y));
-}
-float3 fract3( float3 x){
-    return x - (float3)(floor(x.x), floor(x.y), floor(x.z));
-}
-
-// defining hash functions
-float hash12(float2 p) {
-    float3 p3  = fract3((float3)(p.xyx) * 0.1031f);
-    p3 += dot(p3, p3.yzx + 33.33f);
-    return fract1((p3.x + p3.y) * p3.z);
-}
-float2 hash22(float2 p) {
-    float3 p3 = fract3((float3)(p.xyx) * (float3)(.1031f, .1030f, .0973f));
-    p3 += dot(p3, p3.yzx+33.33f);
-    return fract2((p3.xx+p3.yz)*p3.zy);
-}
-float3 hash32(float2 p) {
-    float3 p3 = fract3((float3)(p.xyx) * (float3)(.1031f, .1030f, .0973f));
-    p3 += dot(p3, p3.yxz+33.33f);
-    return fract3((p3.xxy+p3.yzz)*p3.zyx);
-}
+const int sphere_limit = 5000;
 
 float3 random_in_unit_sphere(float2 p) {
-    float3 rand = hash32(p);
+    float3 rand = VEXrandom_2_3(p.x*672.0f, p.y*551.0f);
     
     float phi = 2.0 * PI * rand.x;
     float cosTheta = 2.0 * rand.y - 1.0;
@@ -65,7 +41,7 @@ float3 random_unit_vector(float2 p) {
 }
 
 float3 random_in_unit_disk(float2 p) {
-    float3 rand = hash32(p);
+    float3 rand = VEXrandom_2_3(p.x*278.0f, p.y*222.0f);
     return (float3)(rand.x*2-1, rand.y*2-1, 0);
 }
 
@@ -134,9 +110,9 @@ struct hit_record hit_sphere(struct sphere sph, struct ray r, struct hit_record 
     return rec;
 }
 
-struct sphere spheres[num_spheres];
+struct sphere spheres[sphere_limit];
 
-struct hit_record hit(struct ray r, struct hit_record rec) {
+struct hit_record hit(struct ray r, struct hit_record rec, int sphere_count) {
     bool hit = false;
     rec.hit = false;
     
@@ -148,7 +124,7 @@ struct hit_record hit(struct ray r, struct hit_record rec) {
     rec.material.metal_fuzz = 0.0;
     rec.material.ior = 0.;
     
-    for( int i = 0; i < num_spheres; i++){
+    for( int i = 0; i < sphere_count; i++){
         rec = hit_sphere(spheres[i], r, rec, hit);
         hit = rec.hit;
     }
@@ -214,7 +190,7 @@ struct ray scatter_ray(struct hit_record rec, struct ray r, float2 seed, float3 
         bool cannot_refract = refraction_ratio * sin_theta > 1.0f;
         float3 direction;
 
-        if (cannot_refract || reflectance(cos_theta, refraction_ratio) > hash12(seed)) {
+        if (cannot_refract || reflectance(cos_theta, refraction_ratio) > VEXrandom_2_1(seed.x, seed.y)) {
             scatter_direction = reflect(r.dir, adjusted_normal);
         } else {
             scatter_direction = refract(r.dir, adjusted_normal, refraction_ratio);
@@ -242,7 +218,7 @@ float3 scatter_attenuation(struct hit_record rec, struct ray r, float2 seed, flo
     return attenuation;
 }
 
-float3 ray_color(struct ray r, float2 seed, int max_bounces) {
+float3 ray_color(struct ray r, float2 seed, int max_bounces, int sphere_count) {
     float3 color = (float3){1.0f, 1.0f, 1.0f};
     
     struct hit_record rec;
@@ -250,7 +226,7 @@ float3 ray_color(struct ray r, float2 seed, int max_bounces) {
     
     for (depth = 0; depth < max_bounces; depth++) {
         
-        rec = hit(r, rec);
+        rec = hit(r, rec, sphere_count);
     
         if (rec.hit) {
             
@@ -289,9 +265,8 @@ struct material diffuse01 = {0, (float3){0.4f, 0.2f , 0.1f}};
 struct material metal01 = {1, (float3){0.7f, 0.6f , 0.5f}, 0.5f};
 
 float4 col;
-struct material materials[num_spheres-4];
+struct material materials[sphere_limit];
 float3 sphere_albedo;
-float spacing = 1.0;
 
 @KERNEL
 {   
@@ -300,32 +275,34 @@ float spacing = 1.0;
     spheres[0].radius = 3000.0f;
     spheres[0].material = ground01;
     
-    float rows = sqrt((float)num_spheres);
+    float rows = sqrt((float)@num_spheres);
+    
+    int sphere_count = 2;
     
     //scattered spheres
-    for( int i = 5; i < num_spheres; i++){
-        float x_pos = ((i)/rows)-(rows*0.5)*spacing;
-        float y_pos = mod((i), rows)-(rows*0.5)*spacing;
+    for( int i = 5; i < @num_spheres; i++){
+        float x_pos = (mod(i, rows)*@spacing) - (@spacing*rows)/2;
+        float y_pos = ((i/rows)*@spacing) - (@spacing*rows)/2;
         
-        x_pos = x_pos + (float)(hash12(i+949))*spacing*0.8;
-        y_pos = y_pos + (float)(hash12(i+1195))*spacing*0.8;
+        x_pos = x_pos + (float)(VEXrandom_1_1(i+949))*@spacing - (@spacing/2);
+        y_pos = y_pos + (float)(VEXrandom_1_1(i+1195))*@spacing - (@spacing/2);
         
         if( length((float3){x_pos, 0.2f, y_pos}-(float3){0, 0.2, 0}) > 1.2f
             && length((float3){x_pos, 0.2f, y_pos}-(float3){-4, 0.2, 0}) > 1.2f
             && length((float3){x_pos, 0.2f, y_pos}-(float3){4, 0.2, 0}) > 1.2f){
-            float choose_mat = (float)(hash12(i+584));
+            float choose_mat = (float)(VEXrandom_1_1(i+584));
             
             spheres[i].center = (float3)(x_pos, 0.2f, y_pos);
             spheres[i].radius = 0.2f;
             
             if( choose_mat < 0.8){
-                sphere_albedo = hash32((float2){i+983, i+734});
+                sphere_albedo = VEXrandom_2_3(i+983, i+734);
                 materials[i].type = 0;
                 materials[i].albedo = sphere_albedo*sphere_albedo;
                 spheres[i].material = materials[i];
             }
             else if( choose_mat < 0.95){
-                sphere_albedo = hash32((float2){i+983, i+734});
+                sphere_albedo = VEXrandom_2_3(i+983, i+734);
                 materials[i].type = 1;
                 materials[i].metal_fuzz = 0.2f;
                 materials[i].albedo = sphere_albedo*sphere_albedo;
@@ -336,6 +313,7 @@ float spacing = 1.0;
                 materials[i].ior = 1.5f;
                 spheres[i].material = materials[i];
             }
+            sphere_count++;
         }
     }
     
@@ -395,7 +373,7 @@ float spacing = 1.0;
     float3 color = (float3){0.0f, 0.0f, 0.0f};
     for (float s = 0.0f; s < @samples; s++) {
         
-        float2 rand = hash22(pindex * 999.0f + s + 1.0f);
+        float2 rand = VEXrandom_2_2(pindex.x * 999.0f + s, pindex.y * 729.0f + s);
 
         struct ray r;
         
@@ -411,7 +389,7 @@ float spacing = 1.0;
         r.origin = (@defocus_angle <= 0) ? center : dds;
         r.dir = normalize(pixel_sample - r.origin);
         
-        color += ray_color(r, rand, @max_bounces);
+        color += ray_color(r, rand, @max_bounces, sphere_count+2);
     }
     
     col = (float4)(sqrt(color / @samples), 1.0f);
